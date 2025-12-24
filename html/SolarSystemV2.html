@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>修复版：太阳系+真实月球轨道</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --orbit-color: rgba(255, 255, 255, 0.12);
+            --accent-color: #38bdf8;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 3px),
+                radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 2px),
+                radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 3px);
+            background-size: 550px 550px, 350px 350px, 250px 250px;
+            background-position: 0 0, 40px 60px, 130px 270px;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            touch-action: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* UI Controls */
+        .ui-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 100; }
+        .control-bar { position: absolute; top: 20px; right: 20px; pointer-events: auto; display: flex; gap: 10px; }
+        .btn {
+            background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255,255,255,0.2);
+            color: white; padding: 8px 16px; border-radius: 20px; font-size: 13px;
+            backdrop-filter: blur(8px); cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: 0.2s;
+        }
+        .btn:active { background: var(--accent-color); color: #000; transform: scale(0.95); }
+        .hint {
+            position: absolute; bottom: 20px; left: 0; width: 100%; text-align: center;
+            color: rgba(255,255,255,0.3); font-size: 12px; pointer-events: none;
+        }
+
+        /* Stage & System */
+        .stage { width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; perspective: 1200px; }
+        .solar-system { position: relative; width: 0; height: 0; transform-style: preserve-3d; }
+        .solar-system.paused .planet-container, 
+        .solar-system.paused .moon-container,
+        .solar-system.paused .moon { animation-play-state: paused !important; }
+
+        /* Orbits & Planet Containers */
+        .orbit {
+            position: absolute; top: 50%; left: 50%;
+            border: 1px solid var(--orbit-color); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+        }
+        
+        /* 行星容器动画：需要 translate 修正中心 */
+        .planet-container {
+            position: absolute; top: 50%; left: 50%; width: 100%; height: 100%;
+            transform: translate(-50%, -50%); 
+            animation: rotate linear infinite; 
+            pointer-events: none;
+        }
+
+        .planet {
+            position: absolute; top: 0; left: 50%;
+            transform: translate(-50%, -50%); border-radius: 50%;
+            cursor: pointer; pointer-events: auto; z-index: 10;
+            background-size: cover; background-position: center;
+            box-shadow: inset -3px -3px 8px rgba(0,0,0,0.8), 0 0 10px rgba(0,0,0,0.5);
+        }
+        .planet::before { content: ''; position: absolute; top: -15px; left: -15px; right: -15px; bottom: -15px; }
+
+        /* --- 核心修复：月球系统 --- */
+        .moon-system {
+            position: absolute;
+            top: 0; left: 50%; /* 附着在地球位置 (地球在 orbit 顶部) */
+            transform: translate(-50%, -50%); /* 中心对齐地球 */
+            width: 50px; height: 50px; /* 月球轨道稍微加大一点以便观察 */
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 12; /* 确保轨道线可见 */
+        }
+
+        .moon-container {
+            width: 100%; height: 100%;
+            /* 
+             * 修复 1：使用 spin-self 而不是 rotate。
+             * rotate 包含 translate(-50%,-50%)，会导致月球容器偏离中心。
+             * spin-self 只旋转，不位移。
+             */
+            animation: spin-self 2.5s linear infinite; 
+        }
+
+        .moon {
+            position: absolute; top: 0; left: 50%;
+            width: 7px; height: 7px;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/FullMoon2010.jpg/240px-FullMoon2010.jpg');
+            background-size: cover;
+            box-shadow: inset -1px -1px 2px rgba(0,0,0,0.8);
+            cursor: pointer; pointer-events: auto;
+            
+            /* 
+             * 修复 2：增加 Z-index 动画 (moon-depth)
+             * 当月球转到轨道上方(0度)时，它应该在地球后面(z-index < 10)。
+             * 当月球转到轨道下方(180度)时，它应该在地球前面(z-index > 10)。
+             */
+            animation: moon-depth 2.5s linear infinite; 
+            z-index: 11; /* 默认值 */
+        }
+        .moon::before { content: ''; position: absolute; top: -10px; left: -10px; right: -10px; bottom: -10px; }
+
+
+        /* --- Animations --- */
+        /* 原有的：带位移的旋转 (用于大轨道) */
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* 新增：纯自转 (用于月球容器) */
+        @keyframes spin-self {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* 新增：深度模拟 (Z-index 切换) 
+           0deg (Top) = Back
+           90deg (Right) = Crossing
+           180deg (Bottom) = Front
+           270deg (Left) = Crossing
+        */
+        @keyframes moon-depth {
+            0% { z-index: 9; }    /* 背面 */
+            24% { z-index: 9; }
+            25% { z-index: 11; }  /* 切换到前面 */
+            74% { z-index: 11; }
+            75% { z-index: 9; }   /* 切换到后面 */
+            100% { z-index: 9; }
+        }
+
+
+        /* Planet Details */
+        .sun {
+            position: absolute; top: 50%; left: 50%; width: 60px; height: 60px;
+            transform: translate(-50%, -50%);
+            background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/The_Sun_by_the_Atmospheric_Imaging_Assembly_of_NASA%27s_Solar_Dynamics_Observatory_-_20100819.jpg/240px-The_Sun_by_the_Atmospheric_Imaging_Assembly_of_NASA%27s_Solar_Dynamics_Observatory_-_20100819.jpg');
+            background-size: cover; border-radius: 50%;
+            box-shadow: 0 0 50px #f59e0b; z-index: 5; cursor: pointer; pointer-events: auto;
+        }
+
+        .orbit-mercury { width: 110px; height: 110px; } .mercury-c { animation-duration: 5s; }
+        .mercury { width: 12px; height: 12px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/Mercury_in_color_-_Prockter07_centered.jpg/240px-Mercury_in_color_-_Prockter07_centered.jpg'); }
+
+        .orbit-venus { width: 160px; height: 160px; } .venus-c { animation-duration: 8s; }
+        .venus { width: 18px; height: 18px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Venus_in_Real_Color_-_processed.jpg/240px-Venus_in_Real_Color_-_processed.jpg'); }
+
+        .orbit-earth { width: 230px; height: 230px; } .earth-c { animation-duration: 12s; }
+        .earth { width: 22px; height: 22px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/The_Earth_seen_from_Apollo_17.jpg/240px-The_Earth_seen_from_Apollo_17.jpg'); z-index: 10; }
+
+        .orbit-mars { width: 300px; height: 300px; } .mars-c { animation-duration: 16s; }
+        .mars { width: 16px; height: 16px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/OSIRIS_Mars_true_color.jpg/240px-OSIRIS_Mars_true_color.jpg'); }
+
+        .orbit-jupiter { width: 420px; height: 420px; } .jupiter-c { animation-duration: 30s; }
+        .jupiter { width: 45px; height: 45px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Jupiter.jpg/240px-Jupiter.jpg'); }
+
+        .orbit-saturn { width: 560px; height: 560px; } .saturn-c { animation-duration: 40s; }
+        .saturn { width: 38px; height: 38px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Saturn_Storm.jpg/240px-Saturn_Storm.jpg'); }
+        .saturn::after {
+            content: ''; position: absolute; width: 60px; height: 14px;
+            border: 5px solid rgba(210, 180, 140, 0.6); border-top: 5px solid rgba(210, 180, 140, 0.3);
+            border-radius: 50%; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-20deg); pointer-events: none;
+        }
+
+        .orbit-uranus { width: 680px; height: 680px; } .uranus-c { animation-duration: 60s; }
+        .uranus { width: 28px; height: 28px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Uranus2.jpg/240px-Uranus2.jpg'); }
+
+        .orbit-neptune { width: 800px; height: 800px; } .neptune-c { animation-duration: 80s; }
+        .neptune { width: 26px; height: 26px; background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Neptune_-_Voyager_2_%2829347980845%29_flatten_crop.jpg/240px-Neptune_-_Voyager_2_%2829347980845%29_flatten_crop.jpg'); }
+
+
+        /* Modal & Logic */
+        .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 150; opacity: 0; pointer-events: none; transition: 0.3s; backdrop-filter: blur(3px); }
+        .overlay.active { opacity: 1; pointer-events: auto; }
+        .modal {
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -40%) scale(0.95);
+            background: rgba(20, 20, 25, 0.95); border: 1px solid rgba(255,255,255,0.1);
+            padding: 24px; border-radius: 16px; width: 80%; max-width: 320px; color: #eee;
+            opacity: 0; pointer-events: none; transition: 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+            z-index: 200; box-shadow: 0 20px 50px rgba(0,0,0,0.8); text-align: center;
+        }
+        .modal.active { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+        .modal-img { width: 80px; height: 80px; margin: 0 auto 15px; border-radius: 50%; background-size: cover; background-position: center; box-shadow: 0 0 20px rgba(0,0,0,0.5); display: block; }
+        .modal h2 { margin: 0 0 5px; color: var(--accent-color); font-size: 1.5rem; }
+        .modal p { color: #bbb; font-size: 0.95rem; line-height: 1.6; margin-bottom: 20px; text-align: left; }
+        .btn-close { width: 100%; padding: 12px; background: var(--accent-color); border: none; border-radius: 10px; color: #000; font-weight: bold; font-size: 1rem; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <!-- UI 保持不变 -->
+    <div class="ui-layer">
+        <div class="control-bar">
+            <button class="btn" id="btnPause" onclick="togglePause()">暂停</button>
+            <button class="btn" onclick="resetView()">复位</button>
+        </div>
+        <div class="hint">双指缩放 · 月球现在正确穿插绕行</div>
+    </div>
+
+    <div class="stage" id="stage">
+        <div class="solar-system" id="solarSystem">
+            <div class="sun" onclick="showInfo('太阳', 'The Sun', '恒星', '太阳系核心。')"></div>
+
+            <div class="orbit orbit-mercury"><div class="planet-container mercury-c"><div class="planet mercury" onclick="showInfo('水星', 'Mercury', '类地行星', '离太阳最近。')"></div></div></div>
+            <div class="orbit orbit-venus"><div class="planet-container venus-c"><div class="planet venus" onclick="showInfo('金星', 'Venus', '类地行星', '最亮的星。')"></div></div></div>
+            
+            <!-- 地球系统 -->
+            <div class="orbit orbit-earth">
+                <div class="planet-container earth-c">
+                    <!-- 地球本体 -->
+                    <div class="planet earth" onclick="showInfo('地球', 'Earth', '类地行星', '我们的家园。')"></div>
+                    
+                    <!-- 月球系统 -->
+                    <div class="moon-system">
+                        <div class="moon-container">
+                            <div class="moon" onclick="showInfo('月球', 'The Moon', '卫星', '正确环绕地球运行。')"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="orbit orbit-mars"><div class="planet-container mars-c"><div class="planet mars" onclick="showInfo('火星', 'Mars', '类地行星', '红色星球。')"></div></div></div>
+            <div class="orbit orbit-jupiter"><div class="planet-container jupiter-c"><div class="planet jupiter" onclick="showInfo('木星', 'Jupiter', '气态巨行星', '大红斑。')"></div></div></div>
+            <div class="orbit orbit-saturn"><div class="planet-container saturn-c"><div class="planet saturn" onclick="showInfo('土星', 'Saturn', '气态巨行星', '美丽的光环。')"></div></div></div>
+            <div class="orbit orbit-uranus"><div class="planet-container uranus-c"><div class="planet uranus" onclick="showInfo('天王星', 'Uranus', '冰巨星', '躺着自转。')"></div></div></div>
+            <div class="orbit orbit-neptune"><div class="planet-container neptune-c"><div class="planet neptune" onclick="showInfo('海王星', 'Neptune', '冰巨星', '遥远的蓝色世界。')"></div></div></div>
+        </div>
+    </div>
+
+    <!-- 弹窗结构 -->
+    <div class="overlay" id="overlay" onclick="closeInfo()"></div>
+    <div class="modal" id="modal">
+        <div id="mImg" class="modal-img"></div>
+        <h2 id="mTitle">Title</h2>
+        <div style="color: #38bdf8; font-size: 0.85rem; margin-bottom: 10px; font-weight: bold;" id="mType">Type</div>
+        <p id="mDesc">Desc</p>
+        <button class="btn-close" onclick="closeInfo()">关闭</button>
+    </div>
+
+    <script>
+        const system = document.getElementById('solarSystem');
+        const stage = document.getElementById('stage');
+        const btnPause = document.getElementById('btnPause');
+        
+        let state = { scale: 1, x: 0, y: 0, isPaused: false, wasPausedBeforeClick: false };
+        let touch = { mode: 'none', startX: 0, startY: 0, startDist: 0, startScale: 1 };
+
+        function init() {
+            const minDim = Math.min(window.innerWidth, window.innerHeight);
+            state.scale = Math.min(minDim / 950, 1.2);
+            updateTransform();
+        }
+
+        function updateTransform() {
+            system.style.transform = `translate(${state.x}px, ${state.y}px) rotateX(20deg) scale(${state.scale})`;
+        }
+
+        function resetView() { state.x = 0; state.y = 0; init(); }
+
+        function togglePause() {
+            state.isPaused = !state.isPaused;
+            renderPauseState();
+        }
+
+        function renderPauseState() {
+            if (state.isPaused) {
+                system.classList.add('paused');
+                btnPause.innerText = "继续"; btnPause.style.backgroundColor = "#ef4444";
+            } else {
+                system.classList.remove('paused');
+                btnPause.innerText = "暂停"; btnPause.style.backgroundColor = "";
+            }
+        }
+
+        // Touch & Mouse Logic
+        stage.addEventListener('touchstart', e => {
+            if(e.target.closest('.control-bar') || e.target.closest('.modal')) return;
+            if (e.touches.length === 1) {
+                touch.mode = 'pan'; touch.startX = e.touches[0].clientX - state.x; touch.startY = e.touches[0].clientY - state.y;
+            } else if (e.touches.length === 2) {
+                touch.mode = 'zoom';
+                touch.startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                touch.startScale = state.scale;
+            }
+        }, {passive: false});
+
+        stage.addEventListener('touchmove', e => {
+            e.preventDefault();
+            if (touch.mode === 'pan' && e.touches.length === 1) {
+                state.x = e.touches[0].clientX - touch.startX; state.y = e.touches[0].clientY - touch.startY; updateTransform();
+            } else if (touch.mode === 'zoom' && e.touches.length === 2) {
+                const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                state.scale = Math.max(0.15, Math.min(touch.startScale * (dist / touch.startDist), 5.0)); updateTransform();
+            }
+        }, {passive: false});
+
+        stage.addEventListener('touchend', () => touch.mode = 'none');
+        stage.addEventListener('wheel', e => { e.preventDefault(); state.scale = Math.max(0.15, Math.min(state.scale * (e.deltaY > 0 ? 0.9 : 1.1), 5.0)); updateTransform(); }, {passive: false});
+
+        // Modal Logic
+        const modal = document.getElementById('modal');
+        const overlay = document.getElementById('overlay');
+        const mImg = document.getElementById('mImg');
+
+        window.showInfo = function(name, enName, type, desc) {
+            state.wasPausedBeforeClick = state.isPaused;
+            if(!state.isPaused) { state.isPaused = true; renderPauseState(); }
+            if(window.event) window.event.stopPropagation();
+
+            document.getElementById('mTitle').innerHTML = `${name} <span style="font-size:0.6em;color:#777">${enName}</span>`;
+            document.getElementById('mType').innerText = type;
+            document.getElementById('mDesc').innerText = desc;
+            
+            const targetStyle = window.getComputedStyle(event.target);
+            mImg.style.backgroundImage = targetStyle.backgroundImage;
+            
+            modal.classList.add('active'); overlay.classList.add('active');
+        }
+
+        window.closeInfo = function() {
+            modal.classList.remove('active'); overlay.classList.remove('active');
+            if(!state.wasPausedBeforeClick) { state.isPaused = false; renderPauseState(); }
+        }
+
+        init();
+    </script>
+</body>
+</html>
