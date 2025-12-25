@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aho-Corasick 算法可视化 (D3.js版)</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8f9fa;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 顶部控制栏 */
+        .controls {
+            background: #ffffff;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            z-index: 10;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .input-group label {
+            font-size: 12px;
+            color: #666;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+        }
+
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.2s;
+            height: 36px;
+            margin-top: auto;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        button.secondary { background-color: #6c757d; }
+        button.danger { background-color: #dc3545; }
+
+        /* 主视口 */
+        .main-area {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #viz-container {
+            flex: 3;
+            position: relative;
+            background-color: #fff;
+            border-right: 1px solid #eee;
+            overflow: hidden; /* SVG pan/zoom handled by d3 */
+        }
+
+        /* 右侧信息栏 */
+        .info-panel {
+            flex: 1;
+            padding: 20px;
+            background: #fdfdfd;
+            overflow-y: auto;
+            max-width: 350px;
+            border-left: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .status-box {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 6px;
+            border-left: 4px solid #007bff;
+        }
+        .status-title { font-weight: bold; font-size: 0.9em; margin-bottom: 5px; color: #495057; }
+        .status-content { font-family: monospace; font-size: 1.1em; color: #212529; }
+
+        /* 文本条带 */
+        #text-tape {
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2px;
+            padding: 10px;
+            background: white;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        .tape-char {
+            padding: 2px 6px;
+            border-radius: 3px;
+            transition: background 0.3s;
+        }
+        .tape-char.active { background-color: #ffc107; color: black; font-weight: bold; transform: scale(1.2); }
+        .tape-char.processed { color: #aaa; }
+
+        /* 结果列表 */
+        #match-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        #match-list li {
+            padding: 5px 10px;
+            border-bottom: 1px solid #eee;
+            color: #28a745;
+            font-weight: bold;
+            animation: fadeIn 0.5s;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+
+        /* SVG 样式 */
+        .node circle { fill: #fff; stroke: #333; stroke-width: 2px; transition: fill 0.3s; }
+        .node text { font: 14px sans-serif; pointer-events: none; text-anchor: middle; dominant-baseline: middle; font-weight: bold;}
+        
+        .node.end-node circle { stroke: #dc3545; stroke-width: 3px; }
+        .node.current-node circle { fill: #ffc107; }
+
+        .link { fill: none; stroke: #ccc; stroke-width: 2px; }
+        
+        .fail-link { 
+            fill: none; 
+            stroke: #ff6b6b; 
+            stroke-width: 1.5px; 
+            stroke-dasharray: 4,4; 
+            opacity: 0.6;
+        }
+
+        /* 动画光标 */
+        .cursor-token {
+            fill: none;
+            stroke: #0d6efd;
+            stroke-width: 3px;
+            r: 18;
+            pointer-events: none;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-size: 12px;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+        .legend-color { width: 15px; height: 3px; margin-right: 8px; }
+    </style>
+</head>
+<body>
+
+<div class="controls">
+    <div class="input-group">
+        <label>模式串 (逗号分隔)</label>
+        <input type="text" id="patterns" value="say,she,shr,he,her">
+    </div>
+    <button onclick="buildAC()">重构自动机</button>
+    
+    <div style="width: 1px; background: #ddd; height: 40px; margin: 0 10px;"></div>
+
+    <div class="input-group">
+        <label>搜索文本</label>
+        <input type="text" id="searchText" value="yasherhs">
+    </div>
+    
+    <button id="btnStart" class="secondary" onclick="initSearch()">初始化搜索</button>
+    <button id="btnPrev" disabled onclick="stepSearch('prev')">上一步</button>
+    <button id="btnNext" disabled onclick="stepSearch('next')">下一步</button>
+    <button id="btnAuto" class="secondary" disabled onclick="toggleAutoPlay()">自动播放</button>
+    
+    <div class="input-group">
+        <label>速度</label>
+        <input type="range" id="speedRange" min="100" max="2000" value="800" step="100" style="width: 100px;">
+    </div>
+</div>
+
+<div class="main-area">
+    <div id="viz-container">
+        <div class="legend">
+            <div class="legend-item"><div class="legend-color" style="background:#ccc; height:2px;"></div>Trie 树边 (实线)</div>
+            <div class="legend-item"><div class="legend-color" style="background:#ff6b6b; border-bottom: 2px dashed #ff6b6b; height:0;"></div>失败指针 (虚线)</div>
+            <div class="legend-item"><div class="legend-color" style="width:10px; height:10px; border-radius:50%; border:2px solid #dc3545; background:white;"></div>单词结尾节点</div>
+            <div class="legend-item"><div class="legend-color" style="width:10px; height:10px; border-radius:50%; border:2px solid #0d6efd; background:transparent;"></div>当前状态光标</div>
+        </div>
+    </div>
+    
+    <div class="info-panel">
+        <div class="status-box">
+            <div class="status-title">当前操作</div>
+            <div class="status-content" id="status-msg">请先构建自动机</div>
+        </div>
+
+        <div class="status-box">
+            <div class="status-title">处理文本</div>
+            <div id="text-tape"></div>
+        </div>
+
+        <div class="status-box" style="flex:1; display: flex; flex-direction: column;">
+            <div class="status-title">匹配结果</div>
+            <ul id="match-list"></ul>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 1. Aho-Corasick 算法实现 ---
+    class ACNode {
+        constructor(char = '') {
+            this.char = char;
+            this.children = {};
+            this.fail = null;
+            this.isEnd = false;
+            this.output = []; // 存储匹配到的模式串
+            this.id = Math.random().toString(36).substr(2, 9); // 用于D3绑定
+            this.depth = 0;
+        }
+    }
+
+    class ACAutomaton {
+        constructor() {
+            this.root = new ACNode('root');
+        }
+
+        insert(word) {
+            let node = this.root;
+            for (let char of word) {
+                if (!node.children[char]) {
+                    node.children[char] = new ACNode(char);
+                    node.children[char].depth = node.depth + 1;
+                }
+                node = node.children[char];
+            }
+            node.isEnd = true;
+            node.output.push(word);
+        }
+
+        buildFail() {
+            let queue = [];
+            for (let char in this.root.children) {
+                this.root.children[char].fail = this.root;
+                queue.push(this.root.children[char]);
+            }
+
+            while (queue.length > 0) {
+                let current = queue.shift();
+                
+                for (let char in current.children) {
+                    let child = current.children[char];
+                    let f = current.fail;
+                    
+                    while (f !== null && !f.children[char]) {
+                        f = f.fail;
+                    }
+                    
+                    child.fail = f ? f.children[char] : this.root;
+                    
+                    // 合并输出（如果fail节点也是结尾，或者fail节点有输出）
+                    if (child.fail.output.length > 0) {
+                        child.output = child.output.concat(child.fail.output);
+                    }
+                    
+                    queue.push(child);
+                }
+            }
+        }
+        
+        // 生成用于D3的数据结构
+        getD3Data() {
+            // 层次遍历生成树结构
+            const hierarchy = d3.hierarchy(this.root, d => Object.values(d.children));
+            return hierarchy;
+        }
+
+        // 获取所有非Root的Fail边
+        getFailEdges(nodesMap) {
+            let links = [];
+            // 简单的BFS遍历所有节点收集 fail 指针
+            let q = [this.root];
+            let visited = new Set();
+            visited.add(this.root);
+
+            while(q.length > 0){
+                let curr = q.shift();
+                
+                // 只有当 fail 指针存在且不是指向 root 时才添加到可视化列表 (减少视觉干扰)
+                // 如果想看全部，去掉 && curr.fail !== this.root
+                if (curr.fail && curr.fail !== this.root) {
+                    links.push({
+                        source: nodesMap[curr.id],
+                        target: nodesMap[curr.fail.id]
+                    });
+                }
+                
+                for(let key in curr.children){
+                    if(!visited.has(curr.children[key])){
+                        visited.add(curr.children[key]);
+                        q.push(curr.children[key]);
+                    }
+                }
+            }
+            return links;
+        }
+    }
+
+    // --- 2. D3 可视化逻辑 ---
+    let ac, rootD3, svg, g, zoom;
+    let width, height;
+    let nodeSelection, linkSelection, failLinkSelection, cursor;
+    let nodesMap = {}; // id -> d3 node object
+
+    function initViz() {
+        const container = document.getElementById('viz-container');
+        width = container.clientWidth;
+        height = container.clientHeight;
+
+        d3.select("#viz-container").html(""); // 清空
+
+        svg = d3.select("#viz-container")
+            .append("svg")
+            .attr("width", width)
+            .attr("height", height)
+            .call(d3.zoom().on("zoom", (e) => g.attr("transform", e.transform)))
+            .append("g")
+            .attr("transform", "translate(40, 40)");
+
+        g = svg;
+    }
+
+    function draw() {
+        initViz();
+        if (!ac) return;
+
+        const treeLayout = d3.tree().size([height - 100, width - 200]);
+        rootD3 = ac.getD3Data();
+        treeLayout(rootD3);
+
+        // 映射 id 到 d3 节点，方便查找坐标
+        nodesMap = {};
+        rootD3.descendants().forEach(d => {
+            nodesMap[d.data.id] = d;
+        });
+
+        // 1. 绘制 Fail 边 (曲线)
+        const failLinks = ac.getFailEdges(nodesMap);
+        
+        // 箭头定义
+        const defs = svg.append("defs");
+        defs.append("marker")
+            .attr("id", "arrow-fail")
+            .attr("viewBox", "0 -5 10 10")
+            .attr("refX", 22) // 调整箭头位置，避免被圆圈遮挡
+            .attr("refY", 0)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto")
+            .append("path")
+            .attr("d", "M0,-5L10,0L0,5")
+            .attr("fill", "#ff6b6b");
+
+        g.selectAll(".fail-link")
+            .data(failLinks)
+            .enter()
+            .append("path")
+            .attr("class", "fail-link")
+            .attr("marker-end", "url(#arrow-fail)")
+            .attr("d", d => {
+                // 贝塞尔曲线
+                const s = d.source;
+                const t = d.target;
+                const dx = t.y - s.y;
+                const dy = t.x - s.x;
+                const dr = Math.sqrt(dx * dx + dy * dy);
+                // 简单的曲线逻辑：向下弯曲
+                return `M${s.y},${s.x} A${dr},${dr} 0 0,1 ${t.y},${t.x}`;
+            });
+
+        // 2. 绘制 Trie 树边 (直线)
+        g.selectAll(".link")
+            .data(rootD3.links())
+            .enter()
+            .append("path")
+            .attr("class", "link")
+            .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
+
+        // 3. 绘制节点
+        const nodes = g.selectAll(".node")
+            .data(rootD3.descendants())
+            .enter()
+            .append("g")
+            .attr("class", d => `node ${d.data.isEnd ? 'end-node' : ''}`)
+            .attr("transform", d => `translate(${d.y},${d.x})`);
+
+        nodes.append("circle")
+            .attr("r", 15);
+
+        nodes.append("text")
+            .attr("dy", "1px")
+            .text(d => d.data.char === 'root' ? 'R' : d.data.char);
+
+        // 4. 初始化光标 (初始隐藏或在 root)
+        cursor = g.append("circle")
+            .attr("class", "cursor-token")
+            .attr("r", 18)
+            .attr("cx", nodesMap[ac.root.id].y)
+            .attr("cy", nodesMap[ac.root.id].x)
+            .style("opacity", 0);
+    }
+
+    // --- 3. 搜索与动画逻辑 ---
+    let searchState = {
+        text: "",
+        index: 0,
+        node: null,
+        history: [], // 记录步骤用于回退 (简化版只做前进)
+        finished: false
+    };
+    let autoPlayInterval = null;
+
+    function buildAC() {
+        const patterns = document.getElementById('patterns').value.split(/[,，\s]+/).filter(x => x);
+        if (patterns.length === 0) return alert("请输入模式串");
+
+        ac = new ACAutomaton();
+        patterns.forEach(p => ac.insert(p));
+        ac.buildFail();
+        draw();
+        
+        document.getElementById('status-msg').textContent = "自动机构建完成";
+        document.getElementById('btnStart').disabled = false;
+        resetUI();
+    }
+
+    function resetUI() {
+        clearInterval(autoPlayInterval);
+        document.getElementById('match-list').innerHTML = "";
+        document.getElementById('text-tape').innerHTML = "";
+        document.getElementById('btnNext').disabled = true;
+        document.getElementById('btnAuto').disabled = true;
+        document.getElementById('btnAuto').textContent = "自动播放";
+        
+        if (cursor) cursor.style("opacity", 0);
+        d3.selectAll(".node circle").style("fill", "#fff");
+    }
+
+    function initSearch() {
+        const text = document.getElementById('searchText').value;
+        if (!text) return alert("请输入搜索文本");
+
+        resetUI();
+        
+        searchState = {
+            text: text,
+            index: 0,
+            node: ac.root,
+            finished: false
+        };
+
+        // 渲染 Tape
+        const tape = document.getElementById('text-tape');
+        for (let i = 0; i < text.length; i++) {
+            const span = document.createElement('span');
+            span.className = 'tape-char';
+            span.textContent = text[i];
+            span.id = `char-${i}`;
+            tape.appendChild(span);
+        }
+
+        // 初始化光标位置
+        const rootPos = nodesMap[ac.root.id];
+        cursor
+            .style("opacity", 1)
+            .attr("cx", rootPos.y)
+            .attr("cy", rootPos.x);
+
+        document.getElementById('status-msg').textContent = "准备就绪，点击下一步开始";
+        document.getElementById('btnNext').disabled = false;
+        document.getElementById('btnAuto').disabled = false;
+        
+        highlightChar(0);
+    }
+
+    function highlightChar(idx) {
+        document.querySelectorAll('.tape-char').forEach((el, i) => {
+            el.classList.remove('active');
+            if (i < idx) el.classList.add('processed');
+            else el.classList.remove('processed');
+        });
+        if (idx < searchState.text.length) {
+            document.getElementById(`char-${idx}`).classList.add('active');
+        }
+    }
+
+    function stepSearch() {
+        if (searchState.finished) return;
+
+        const char = searchState.text[searchState.index];
+        const currNode = searchState.node;
+        
+        // AC 逻辑核心
+        // 1. 如果当前节点没有该子节点，且不是根节点 -> Fail
+        if (!currNode.children[char] && currNode !== ac.root) {
+            const nextNode = currNode.fail;
+            searchState.node = nextNode;
+            
+            // UI 更新: 移动光标，显示 Fail
+            updateCursor(nextNode, `匹配失败 '${char}'，跳转 Fail 指针 -> ${nextNode.char === 'root' ? 'Root' : nextNode.char}`);
+            // index 不变
+        } 
+        // 2. 有子节点 -> Goto
+        else if (currNode.children[char]) {
+            const nextNode = currNode.children[char];
+            searchState.node = nextNode;
+            
+            // 检查匹配
+            if (nextNode.output.length > 0) {
+                nextNode.output.forEach(word => addMatch(word, searchState.index - word.length + 1));
+            }
+
+            searchState.index++;
+            updateCursor(nextNode, `匹配成功 '${char}'，移动至节点 ${nextNode.char}`);
+            highlightChar(searchState.index);
+        } 
+        // 3. 根节点也没有 -> 丢弃字符
+        else {
+            searchState.index++;
+            updateCursor(ac.root, `根节点无 '${char}' 匹配，重新开始`);
+            highlightChar(searchState.index);
+        }
+
+        // 检查结束
+        if (searchState.index >= searchState.text.length && searchState.node === ac.root) {
+            // 注意：如果只是文本结束但还在树中间，其实还可以继续fail，这里简化处理：文本读完即视为主要过程结束
+            // 严谨的AC应该继续fail直到root，但为了演示直观，当index超限时停止
+             finishSearch();
+        } else if (searchState.index >= searchState.text.length) {
+             // 文本结束了，但还需要把剩下的fail路径走完吗？通常AC只要文本处理完就结束了。
+             // 除非是为了提取最后的后缀匹配。这里我们再多走一步判断。
+             // 如果当前已经是末尾且无法再匹配，结束
+             if (!searchState.node.children[searchState.text[searchState.index]]) {
+                 finishSearch();
+             }
+        }
+    }
+
+    function updateCursor(targetNodeData, msg) {
+        const d3Node = nodesMap[targetNodeData.id];
+        
+        document.getElementById('status-msg').textContent = msg;
+
+        cursor.transition()
+            .duration(300) // 动画速度
+            .attr("cx", d3Node.y)
+            .attr("cy", d3Node.x);
+    }
+
+    function addMatch(word, index) {
+        const li = document.createElement('li');
+        li.textContent = `发现模式串: "${word}" (位置: ${index})`;
+        document.getElementById('match-list').appendChild(li);
+        
+        // 滚动到底部
+        const panel = document.querySelector('.info-panel');
+        panel.scrollTop = panel.scrollHeight;
+    }
+
+    function finishSearch() {
+        searchState.finished = true;
+        document.getElementById('status-msg').textContent = "搜索结束";
+        document.getElementById('btnNext').disabled = true;
+        document.getElementById('btnAuto').disabled = true;
+        clearInterval(autoPlayInterval);
+        document.getElementById('btnAuto').textContent = "自动播放";
+        
+        // 清除高亮
+        document.querySelectorAll('.tape-char').forEach(el => {
+            el.classList.remove('active');
+            el.classList.add('processed');
+        });
+    }
+
+    function toggleAutoPlay() {
+        if (autoPlayInterval) {
+            clearInterval(autoPlayInterval);
+            autoPlayInterval = null;
+            document.getElementById('btnAuto').textContent = "自动播放";
+        } else {
+            const speed = 2100 - document.getElementById('speedRange').value; // 反转：值越大越快->间隔越小
+            autoPlayInterval = setInterval(() => {
+                if (searchState.finished) {
+                    clearInterval(autoPlayInterval);
+                } else {
+                    stepSearch();
+                }
+            }, speed);
+            document.getElementById('btnAuto').textContent = "暂停";
+        }
+    }
+
+    // 窗口大小改变适应
+    window.addEventListener('resize', () => {
+        if(ac) draw();
+    });
+
+    // 初始化
+    buildAC();
+
+</script>
+</body>
+</html>
