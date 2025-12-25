@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>太阳系 (完整八大行星版)</title>
+    <style>
+        :root {
+            --bg-color: #0b0d17;
+            --orbit-color: rgba(255, 255, 255, 0.15);
+            --sun-color: #fbbf24;
+            --accent-color: #38bdf8;
+        }
+
+        body {
+            margin: 0;
+            background-color: var(--bg-color);
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            touch-action: none; /* 接管触摸事件 */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* --- UI 控制栏 --- */
+        .ui-layer {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .control-bar {
+            position: absolute;
+            top: 20px; right: 20px;
+            pointer-events: auto;
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+        }
+
+        .btn:active { transform: scale(0.95); background: var(--accent-color); color: #000; }
+
+        .hint {
+            position: absolute;
+            bottom: 20px; left: 0; width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.3);
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        /* --- 3D 舞台 --- */
+        .stage {
+            width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+            perspective: 1000px;
+        }
+
+        .solar-system {
+            position: relative;
+            width: 0; height: 0;
+            transform-style: preserve-3d;
+        }
+
+        /* 暂停状态 */
+        .solar-system.paused .planet-container {
+            animation-play-state: paused !important;
+        }
+
+        /* 轨道通用 */
+        .orbit {
+            position: absolute;
+            top: 50%; left: 50%;
+            border: 1px solid var(--orbit-color);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+
+        /* 行星容器（负责旋转） */
+        .planet-container {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 100%; height: 100%;
+            transform: translate(-50%, -50%);
+            animation: rotate linear infinite;
+            pointer-events: none;
+        }
+
+        /* 行星本体 */
+        .planet {
+            position: absolute;
+            top: 0; left: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 50%;
+            cursor: pointer;
+            pointer-events: auto;
+            z-index: 10;
+            box-shadow: inset -2px -2px 5px rgba(0,0,0,0.5);
+        }
+
+        /* 增加触摸点击区域 */
+        .planet::before {
+            content: ''; position: absolute;
+            top: -15px; left: -15px; right: -15px; bottom: -15px;
+        }
+
+        .sun {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 50px; height: 50px;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, #fbbf24, #f59e0b);
+            border-radius: 50%;
+            box-shadow: 0 0 40px #f59e0b;
+            z-index: 5;
+            cursor: pointer;
+            pointer-events: auto;
+        }
+
+        /* --- 行星参数设置 (px) --- */
+        
+        /* 水星 */
+        .orbit-mercury { width: 100px; height: 100px; }
+        .mercury-c { animation-duration: 4s; }
+        .mercury { width: 10px; height: 10px; background: #a1a1aa; }
+
+        /* 金星 */
+        .orbit-venus { width: 150px; height: 150px; }
+        .venus-c { animation-duration: 7s; }
+        .venus { width: 16px; height: 16px; background: #eab308; }
+
+        /* 地球 */
+        .orbit-earth { width: 220px; height: 220px; }
+        .earth-c { animation-duration: 10s; }
+        .earth { width: 18px; height: 18px; background: #3b82f6; }
+
+        /* 火星 */
+        .orbit-mars { width: 290px; height: 290px; }
+        .mars-c { animation-duration: 14s; }
+        .mars { width: 14px; height: 14px; background: #ef4444; }
+
+        /* 木星 */
+        .orbit-jupiter { width: 420px; height: 420px; }
+        .jupiter-c { animation-duration: 25s; }
+        .jupiter { width: 34px; height: 34px; background: #d97706; }
+
+        /* 土星 */
+        .orbit-saturn { width: 560px; height: 560px; }
+        .saturn-c { animation-duration: 35s; }
+        .saturn { width: 28px; height: 28px; background: #fde047; }
+        .saturn::after {
+            content: ''; position: absolute;
+            width: 50px; height: 12px;
+            border: 3px solid rgba(253, 224, 71, 0.6);
+            border-radius: 50%;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-20deg);
+        }
+
+        /* 天王星 */
+        .orbit-uranus { width: 680px; height: 680px; }
+        .uranus-c { animation-duration: 50s; }
+        .uranus { width: 22px; height: 22px; background: #22d3ee; }
+
+        /* 海王星 (新增) */
+        .orbit-neptune { width: 800px; height: 800px; }
+        .neptune-c { animation-duration: 65s; }
+        .neptune { width: 20px; height: 20px; background: #2563eb; }
+
+        @keyframes rotate {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* --- 弹窗样式 --- */
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 150; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        .overlay.active { opacity: 1; pointer-events: auto; }
+
+        .modal {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid #334155;
+            padding: 24px;
+            border-radius: 16px;
+            width: 80%; max-width: 340px;
+            color: #fff;
+            opacity: 0; pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+            z-index: 200;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        }
+        .modal.active { opacity: 1; transform: translate(-50%, -50%) scale(1); pointer-events: auto; }
+        .modal h2 { margin: 0 0 8px 0; color: var(--sun-color); font-size: 1.4rem; }
+        .modal p { color: #cbd5e1; line-height: 1.6; font-size: 0.95rem; margin-bottom: 20px; }
+        .btn-close {
+            width: 100%; padding: 12px;
+            background: var(--accent-color); border: none;
+            border-radius: 8px; font-weight: bold; color: #0f172a;
+            font-size: 1rem;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="ui-layer">
+        <div class="control-bar">
+            <button class="btn" id="btnPause" onclick="togglePause()">暂停</button>
+            <button class="btn" onclick="resetView()">重置视角</button>
+        </div>
+        <div class="hint">双指缩放 · 单指拖动</div>
+    </div>
+
+    <div class="stage" id="stage">
+        <div class="solar-system" id="solarSystem">
+            <div class="sun" onclick="showInfo('太阳', '太阳系的中心，占据99.8%的质量。')"></div>
+
+            <!-- 内太阳系 -->
+            <div class="orbit orbit-mercury"><div class="planet-container mercury-c"><div class="planet mercury" onclick="showInfo('水星', '离太阳最近，温差极大。')"></div></div></div>
+            <div class="orbit orbit-venus"><div class="planet-container venus-c"><div class="planet venus" onclick="showInfo('金星', '最亮的行星，温室效应严重。')"></div></div></div>
+            <div class="orbit orbit-earth"><div class="planet-container earth-c"><div class="planet earth" onclick="showInfo('地球', '我们的蓝色家园。')"></div></div></div>
+            <div class="orbit orbit-mars"><div class="planet-container mars-c"><div class="planet mars" onclick="showInfo('火星', '红色星球，也是未来探索的目标。')"></div></div></div>
+            
+            <!-- 外太阳系 -->
+            <div class="orbit orbit-jupiter"><div class="planet-container jupiter-c"><div class="planet jupiter" onclick="showInfo('木星', '巨大的气态行星，有著名的大红斑。')"></div></div></div>
+            <div class="orbit orbit-saturn"><div class="planet-container saturn-c"><div class="planet saturn" onclick="showInfo('土星', '拥有美丽光环的气态巨行星。')"></div></div></div>
+            <div class="orbit orbit-uranus"><div class="planet-container uranus-c"><div class="planet uranus" onclick="showInfo('天王星', '躺着旋转的冰巨星。')"></div></div></div>
+            
+            <!-- 海王星 (已添加) -->
+            <div class="orbit orbit-neptune"><div class="planet-container neptune-c"><div class="planet neptune" onclick="showInfo('海王星', '太阳系最远、风暴最强的深蓝色冰巨星。')"></div></div></div>
+        </div>
+    </div>
+
+    <!-- 弹窗结构 -->
+    <div class="overlay" id="overlay" onclick="closeInfo()"></div>
+    <div class="modal" id="modal">
+        <h2 id="mTitle">标题</h2>
+        <p id="mDesc">描述</p>
+        <button class="btn-close" onclick="closeInfo()">关闭</button>
+    </div>
+
+    <script>
+        const system = document.getElementById('solarSystem');
+        const stage = document.getElementById('stage');
+        const btnPause = document.getElementById('btnPause');
+        const modal = document.getElementById('modal');
+        const overlay = document.getElementById('overlay');
+        
+        // 状态变量
+        let state = {
+            scale: 1,
+            x: 0,
+            y: 0,
+            isPaused: false,
+            wasPausedBeforeClick: false
+        };
+
+        // 触摸变量
+        let touch = {
+            active: false,
+            mode: 'none',
+            startX: 0, startY: 0,
+            startDist: 0,
+            startScale: 1
+        };
+
+        function init() {
+            // 计算初始缩放，确保能看到海王星轨道 (约800px)
+            const minDim = Math.min(window.innerWidth, window.innerHeight);
+            // 留出一些边距，800px的轨道需要除以约900
+            state.scale = minDim / 950; 
+            // 限制初始最大缩放，避免在大屏电脑上过大
+            if(state.scale > 1.2) state.scale = 1.2;
+            updateTransform();
+        }
+
+        function updateTransform() {
+            system.style.transform = `translate(${state.x}px, ${state.y}px) rotateX(20deg) scale(${state.scale})`;
+        }
+
+        function resetView() {
+            state.x = 0; state.y = 0;
+            init();
+        }
+
+        function togglePause() {
+            state.isPaused = !state.isPaused;
+            applyPauseState();
+        }
+
+        function applyPauseState() {
+            if (state.isPaused) {
+                system.classList.add('paused');
+                btnPause.innerText = "继续";
+                btnPause.style.background = "#ef4444";
+            } else {
+                system.classList.remove('paused');
+                btnPause.innerText = "暂停";
+                btnPause.style.background = "rgba(30, 41, 59, 0.8)";
+            }
+        }
+
+        // --- 触摸/鼠标交互 ---
+
+        stage.addEventListener('touchstart', e => {
+            if(e.target.closest('.control-bar') || e.target.closest('.modal')) return;
+
+            if (e.touches.length === 1) {
+                touch.mode = 'pan';
+                touch.startX = e.touches[0].clientX - state.x;
+                touch.startY = e.touches[0].clientY - state.y;
+            } else if (e.touches.length === 2) {
+                touch.mode = 'zoom';
+                touch.startDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                touch.startScale = state.scale;
+            }
+        }, {passive: false});
+
+        stage.addEventListener('touchmove', e => {
+            e.preventDefault();
+            
+            if (touch.mode === 'pan' && e.touches.length === 1) {
+                state.x = e.touches[0].clientX - touch.startX;
+                state.y = e.touches[0].clientY - touch.startY;
+                updateTransform();
+            } else if (touch.mode === 'zoom' && e.touches.length === 2) {
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                let newScale = touch.startScale * (dist / touch.startDist);
+                // 限制缩放 (0.1倍 到 5倍)
+                newScale = Math.max(0.1, Math.min(newScale, 5.0));
+                state.scale = newScale;
+                updateTransform();
+            }
+        }, {passive: false});
+
+        stage.addEventListener('touchend', () => { touch.mode = 'none'; });
+
+        // PC 滚轮缩放支持
+        stage.addEventListener('wheel', e => {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 0.9 : 1.1;
+            state.scale = Math.max(0.1, Math.min(state.scale * delta, 5.0));
+            updateTransform();
+        }, {passive: false});
+
+        // PC 鼠标拖动支持
+        let isMouseDown = false;
+        stage.addEventListener('mousedown', e => {
+             if(e.target.closest('.control-bar') || e.target.closest('.modal')) return;
+             isMouseDown = true;
+             touch.startX = e.clientX - state.x;
+             touch.startY = e.clientY - state.y;
+             stage.style.cursor = 'grabbing';
+        });
+        window.addEventListener('mousemove', e => {
+            if(!isMouseDown) return;
+            e.preventDefault();
+            state.x = e.clientX - touch.startX;
+            state.y = e.clientY - touch.startY;
+            updateTransform();
+        });
+        window.addEventListener('mouseup', () => {
+            isMouseDown = false;
+            stage.style.cursor = 'default';
+        });
+
+        // --- 弹窗逻辑 ---
+        window.showInfo = function(title, desc) {
+            state.wasPausedBeforeClick = state.isPaused;
+            if (!state.isPaused) {
+                state.isPaused = true;
+                applyPauseState();
+            }
+            document.getElementById('mTitle').innerText = title;
+            document.getElementById('mDesc').innerText = desc;
+            modal.classList.add('active');
+            overlay.classList.add('active');
+        }
+
+        window.closeInfo = function() {
+            modal.classList.remove('active');
+            overlay.classList.remove('active');
+            if (!state.wasPausedBeforeClick) {
+                state.isPaused = false;
+                applyPauseState();
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
